@@ -2,7 +2,7 @@
 
 import { useMap } from '@/contexts/MapContext';
 import * as Dialog from '@radix-ui/react-dialog';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 interface Props {
     address: string;
@@ -19,10 +19,16 @@ export default function AddressConfirmationDialog({
     onRetake,
     isProcessing
 }: Props) {
-    const [editedAddress, setEditedAddress] = useState(address);
+    const [editedAddress, setEditedAddress] = useState('');
     const { addDestination } = useMap();
+    const [isConfirming, setIsConfirming] = useState(false);
+
+    useEffect(() => {
+        setEditedAddress(address);
+    }, [address]);
 
     const handleConfirm = async () => {
+        setIsConfirming(true);
         try {
             const response = await fetch('/api/geocode', {
                 method: 'POST',
@@ -37,6 +43,8 @@ export default function AddressConfirmationDialog({
             onClose();
         } catch (error) {
             console.error('Error confirming address:', error);
+        } finally {
+            setIsConfirming(false);
         }
     };
 
@@ -67,21 +75,31 @@ export default function AddressConfirmationDialog({
                                 <div className="flex justify-end gap-2">
                                     <button
                                         onClick={onRetake}
+                                        disabled={isConfirming}
                                         className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded dark:text-gray-300 dark:hover:bg-gray-700"
                                     >
                                         Retake Photo
                                     </button>
                                     <button
                                         onClick={onClose}
+                                        disabled={isConfirming}
                                         className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded dark:text-gray-300 dark:hover:bg-gray-700"
                                     >
                                         Cancel
                                     </button>
                                     <button
                                         onClick={handleConfirm}
-                                        className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                                        disabled={isConfirming}
+                                        className={`px-4 py-2 ${isConfirming ? 'bg-gray-400' : 'bg-blue-600 hover:bg-blue-700'} text-white rounded flex items-center gap-2`}
                                     >
-                                        Confirm
+                                        {isConfirming ? (
+                                            <>
+                                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
+                                                Processing...
+                                            </>
+                                        ) : (
+                                            'Confirm'
+                                        )}
                                     </button>
                                 </div>
                         </>

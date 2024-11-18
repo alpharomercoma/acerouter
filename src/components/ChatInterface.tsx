@@ -3,6 +3,7 @@
 import { useMap } from '@/contexts/MapContext';
 import Image from 'next/image';
 import { useEffect, useRef, useState } from 'react';
+import AddressConfirmationDialog from './AddressConfirmationDialog';
 
 interface Message {
     role: 'user' | 'assistant' | 'route-assistant' | 'help-assistant';
@@ -42,7 +43,6 @@ export default function ChatInterface() {
         canvas.getContext('2d')?.drawImage(videoElement, 0, 0);
 
         const imageBase64 = canvas.toDataURL('image/jpeg');
-        setCapturedImage(imageBase64);
         setIsProcessing(true);
 
         try {
@@ -55,8 +55,28 @@ export default function ChatInterface() {
             if (!response.ok) throw new Error('Failed to process image');
 
             const data = await response.json();
+
+            // Add image and AI response to chat
+            setMessages(prev => [...prev,
+                {
+                    role: 'user',
+                    content: `<img src="${imageBase64}" alt="Captured image" style="max-width: 200px; border-radius: 8px;" />`
+                },
+                {
+                    role: 'assistant',
+                    content: `I found this address: ${data.address}`
+                }
+            ]);
+
             setExtractedAddress(data.address);
             setShowAddressConfirmation(true);
+            setShowCamera(false); // Close camera after successful capture
+
+            // Stop camera stream
+            const videoEl = document.getElementById('camera-preview') as HTMLVideoElement;
+            if (videoEl?.srcObject) {
+                (videoEl.srcObject as MediaStream).getTracks().forEach(track => track.stop());
+            }
         } catch (error) {
             console.error('Error processing image:', error);
             setMessages(prev => [...prev, {
@@ -128,17 +148,54 @@ export default function ChatInterface() {
         }
     };
 
-    const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
         if (file) {
-            // Handle image upload logic
-            const reader = new FileReader();
-            reader.onloadend = () => {
-                const base64 = reader.result as string;
-                // Process image with Gemini
-                // processImageWithGemini(base64);
-            };
-            reader.readAsDataURL(file);
+            setIsProcessing(true);
+            try {
+                const reader = new FileReader();
+                reader.onloadend = async () => {
+                    const base64 = reader.result as string;
+
+                    // Add image to chat immediately
+                    setMessages(prev => [...prev, {
+                        role: 'user',
+                        content: `<img src="${base64}" alt="Uploaded image" style="max-width: 200px; border-radius: 8px;" />`
+                    }]);
+
+                    const response = await fetch('/api/extract-address', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ image: base64 }),
+                    });
+
+                    if (!response.ok) throw new Error('Failed to process image');
+
+                    const data = await response.json();
+
+                    // Add AI response to chat
+                    setMessages(prev => [...prev, {
+                        role: 'assistant',
+                        content: `I found this address: ${data.address}`
+                    }]);
+
+                    setExtractedAddress(data.address);
+                    setShowAddressConfirmation(true);
+                };
+                reader.readAsDataURL(file);
+            } catch (error) {
+                console.error('Error processing image:', error);
+                setMessages(prev => [...prev, {
+                    role: 'assistant',
+                    content: 'Sorry, I had trouble processing that image. Please try again.'
+                }]);
+            } finally {
+                setIsProcessing(false);
+                // Clear the file input
+                if (fileInputRef.current) {
+                    fileInputRef.current.value = '';
+                }
+            }
         }
     };
 
@@ -181,12 +238,13 @@ export default function ChatInterface() {
                                         />
                                     </div>
                                 )}
-                                <div className={`max-w-[80%] p-3 rounded-lg ${message.role === 'user'
-                                    ? 'bg-blue-500 text-white ml-2'
-                                    : 'bg-gray-100 dark:bg-gray-700'
-                                    }`}>
-                                    {message.content}
-                                </div>
+                                <div
+                                    className={`max-w-[80%] p-3 rounded-lg ${message.role === 'user'
+                                            ? 'bg-blue-500 text-white ml-2'
+                                            : 'bg-gray-100 dark:bg-gray-700'
+                                        }`}
+                                    dangerouslySetInnerHTML={{ __html: message.content }}
+                                />
                                 {message.role === 'user' && (
                                     <div className="w-8 h-8 rounded-full overflow-hidden ml-2">
                                         <Image
@@ -202,7 +260,7 @@ export default function ChatInterface() {
                     </div>
 
                     {/* Input area */}
-                    <div className="border-t dark:border-gray-700 p-4">
+                    <div className="border-t dark:border-gray-700 p-4 space-y-3">
                         {!isLocationEnabled ? (
                             <button
                                 onClick={requestLocation}
@@ -211,14 +269,23 @@ export default function ChatInterface() {
                                 Enable Location
                             </button>
                         ) : (
-                            <div className="flex gap-2">
-                                <input
-                                    type="text"
-                                    value={inputMessage}
-                                    onChange={(e) => setInputMessage(e.target.value)}
-                                    placeholder="Type a destination..."
-                                    className="flex-1 p-2 border dark:border-gray-700 rounded-lg dark:bg-gray-700"
-                                />
+                            <div className="space-y-2">
+                                <div className="flex gap-2">
+                                    <input
+                                        type="text"
+                                        value={inputMessage}
+                                        onChange={(e) => setInputMessage(e.target.value)}
+                                        placeholder="Type a destination..."
+                                        className="flex-1 p-2 border dark:border-gray-700 rounded-lg dark:bg-gray-700"
+                                    />
+                                    <button
+                                        onClick={handleSend}
+                                        className="px-4 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
+                                    >
+                                        Send
+                                    </button>
+                                </div>
+                                <div className="flex gap-2">
                                     <input
                                         type="file"
                                         accept="image/*"
@@ -228,29 +295,40 @@ export default function ChatInterface() {
                                     />
                                     <button
                                         onClick={() => fileInputRef.current?.click()}
-                                        className="p-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+                                        className="flex-1 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
                                     >
-                                        📎
+                                        📎 Upload Image
                                     </button>
                                     <button
                                         onClick={handleCamera}
-                                        className="p-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+                                        className="flex-1 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
                                     >
-                                        📷
+                                        📷 Scan Image
                                     </button>
-                                    <button
-                                        onClick={handleSend}
-                                    className="p-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
-                                >
-                                    Send
-                                </button>
+                                </div>
                             </div>
                         )}
                     </div>
                 </div>
             )}
 
-            {/* Camera Modal */}
+            {/* Add the AddressConfirmationDialog */}
+            <AddressConfirmationDialog
+                address={extractedAddress}
+                isOpen={showAddressConfirmation}
+                onClose={() => {
+                    setShowAddressConfirmation(false);
+                    setExtractedAddress('');
+                }}
+                onRetake={() => {
+                    setShowAddressConfirmation(false);
+                    setExtractedAddress('');
+                    handleCamera();
+                }}
+                isProcessing={isProcessing}
+            />
+
+            {/* Update the camera modal to show processing state */}
             {showCamera && (
                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
                     <div className="bg-white p-4 rounded-lg">
@@ -263,9 +341,10 @@ export default function ChatInterface() {
                         <div className="flex gap-2 mt-4">
                             <button
                                 onClick={handleCapture}
-                                className="flex-1 py-2 bg-blue-500 text-white rounded-lg"
+                                disabled={isProcessing}
+                                className={`flex-1 py-2 ${isProcessing ? 'bg-gray-400' : 'bg-blue-500'} text-white rounded-lg`}
                             >
-                                Capture
+                                {isProcessing ? 'Processing...' : 'Capture'}
                             </button>
                             <button
                                 onClick={() => {
@@ -275,7 +354,8 @@ export default function ChatInterface() {
                                         (videoElement.srcObject as MediaStream).getTracks().forEach(track => track.stop());
                                     }
                                 }}
-                                className="flex-1 py-2 bg-red-500 text-white rounded-lg"
+                                disabled={isProcessing}
+                                className={`flex-1 py-2 ${isProcessing ? 'bg-gray-400' : 'bg-red-500'} text-white rounded-lg`}
                             >
                                 Cancel
                             </button>
