@@ -2,10 +2,22 @@ import { NextResponse } from 'next/server';
 
 export async function POST(request: Request) {
     try {
-        const { origin, destination } = await request.json();
+        const { locations } = await request.json();
+
+        if (!locations || locations.length < 2) {
+            throw new Error('At least two locations are required');
+        }
+
+        const origin = locations[0];
+        const destination = locations[locations.length - 1];
+        const waypoints = locations.slice(1, -1);
+
+        const waypointsParam = waypoints.length > 0
+            ? `&waypoints=${waypoints.map((wp: any) => `via:${encodeURIComponent(wp.address)}`).join('|')}`
+            : '';
 
         const response = await fetch(
-            `https://maps.googleapis.com/maps/api/directions/json?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&departure_time=now&traffic_model=best_guess&key=${process.env.GOOGLE_MAPS_API_KEY}`
+            `https://maps.googleapis.com/maps/api/directions/json?origin=${encodeURIComponent(origin.address)}&destination=${encodeURIComponent(destination.address)}${waypointsParam}&departure_time=now&traffic_model=best_guess&alternatives=true&key=${process.env.GOOGLE_MAPS_API_KEY}`
         );
 
         const data = await response.json();
@@ -14,19 +26,20 @@ export async function POST(request: Request) {
             throw new Error(`Directions request failed with status: ${data.status}`);
         }
 
-        const route = data.routes[0];
-        const leg = route.legs[0];
-
-        return NextResponse.json({
-            duration: leg.duration.text,
-            durationInTraffic: leg.duration_in_traffic.text,
-            distance: leg.distance.text,
-            steps: leg.steps.map((step: any) => ({
+        // Process all alternative routes
+        const routes = data.routes.map((route: any) => ({
+            duration: route.legs.reduce((total: number, leg: any) => total + leg.duration.value, 0),
+            durationInTraffic: route.legs.reduce((total: number, leg: any) => total + (leg.duration_in_traffic?.value || leg.duration.value), 0),
+            distance: route.legs.reduce((total: number, leg: any) => total + leg.distance.value, 0),
+            summary: route.summary,
+            steps: route.legs.flatMap((leg: any) => leg.steps.map((step: any) => ({
                 instruction: step.html_instructions,
                 distance: step.distance.text,
                 duration: step.duration.text,
-            })),
-        });
+            }))),
+        }));
+
+        return NextResponse.json({ routes });
     } catch (error) {
         console.error('Error getting traffic info:', error);
         return NextResponse.json(

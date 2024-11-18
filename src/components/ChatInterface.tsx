@@ -1,14 +1,64 @@
 'use client';
 
 import { useMap } from '@/contexts/MapContext';
+import { formatDuration, formatTrafficDelay } from '@/utils/formatters';
 import Image from 'next/image';
 import { useEffect, useRef, useState } from 'react';
 import AddressConfirmationDialog from './AddressConfirmationDialog';
 
 interface Message {
-    role: 'user' | 'assistant' | 'route-assistant' | 'help-assistant';
+    role: 'user' | 'assistant' | 'route-assistant' | 'traffic-assistant';
     content: string;
 }
+
+// Separate the traffic query handler to use destinations from props
+const handleTrafficQuery = async (query: string, destinations: Array<{ lat: number; lng: number; address: string; }>) => {
+    if (destinations.length < 2) {
+        return {
+            role: 'traffic-assistant',
+            content: 'I need at least two locations in your route to provide traffic information. Please add more destinations first.'
+        };
+    }
+
+    try {
+        const response = await fetch('/api/traffic', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ locations: destinations }),
+        });
+
+        if (!response.ok) throw new Error('Failed to get traffic information');
+
+        const { routes } = await response.json();
+        const bestRoute = routes[0];
+
+        // Calculate traffic delay
+        const delay = bestRoute.durationInTraffic - bestRoute.duration;
+
+        // Generate appropriate response based on the query
+        let res = '';
+        if (query.toLowerCase().includes('time')) {
+            res = `The current travel time is ${formatDuration(bestRoute.durationInTraffic)}${delay > 180 ? ` (${formatTrafficDelay(delay)} delay due to traffic)` : ''}.`;
+        } else if (query.toLowerCase().includes('distance')) {
+            res = `The total distance is ${(bestRoute.distance / 1000).toFixed(1)} km.`;
+        } else if (query.toLowerCase().includes('route') || query.toLowerCase().includes('direction')) {
+            res = `The best route is via ${bestRoute.summary}. Here are the step-by-step directions:\n\n${bestRoute.steps.map((step: any, index: number) => `${index + 1}. ${step.instruction} (${step.distance})`).join('\n')}`;
+        } else {
+            res = `Current traffic conditions:\n• Travel time: ${formatDuration(bestRoute.durationInTraffic)}\n• Distance: ${(bestRoute.distance / 1000).toFixed(1)} km\n• Route: via ${bestRoute.summary}${delay > 180 ? `\n• Traffic delay: ${formatTrafficDelay(delay)}` : ''}`;
+        }
+
+        return {
+            role: 'traffic-assistant' as const,
+            content: res
+        };
+    } catch (error) {
+        console.error('Error getting traffic info:', error);
+        return {
+            role: 'traffic-assistant' as const,
+            content: 'Sorry, I had trouble getting the traffic information. Please try again.'
+        };
+    }
+};
 
 export default function ChatInterface() {
     const [messages, setMessages] = useState<Message[]>([]);
@@ -16,12 +66,19 @@ export default function ChatInterface() {
     const [isLocationEnabled, setIsLocationEnabled] = useState(false);
     const [isChatVisible, setIsChatVisible] = useState(true);
     const [showCamera, setShowCamera] = useState(false);
-    const { addDestination, setCurrentLocation } = useMap();
+    const { addDestination, setCurrentLocation, destinations } = useMap();
     const [capturedImage, setCapturedImage] = useState<string | null>(null);
     const [extractedAddress, setExtractedAddress] = useState('');
     const [isProcessing, setIsProcessing] = useState(false);
     const [showAddressConfirmation, setShowAddressConfirmation] = useState(false);
     const [activeChat, setActiveChat] = useState<'route' | 'traffic'>('route');
+    const [trafficContext, setTrafficContext] = useState<{
+        lastQuery: string;
+        lastUpdate: number;
+    }>({
+        lastQuery: '',
+        lastUpdate: 0,
+    });
 
     // Add file input ref
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -97,29 +154,34 @@ export default function ChatInterface() {
             content: inputMessage
         }]);
 
-        try {
-            const response = await fetch('/api/geocode', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ address: inputMessage }),
-            });
+        if (activeChat === 'traffic') {
+            const response = await handleTrafficQuery(inputMessage, destinations);
+            setMessages(prev => [...prev, response]);
+        } else {
+        // Existing route planning logic
+            try {
+                const response = await fetch('/api/geocode', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ address: inputMessage }),
+                });
 
-            if (!response.ok) throw new Error('Failed to geocode address');
+                if (!response.ok) throw new Error('Failed to geocode address');
 
-            const { lat, lng, formattedAddress } = await response.json();
+                const { lat, lng, formattedAddress } = await response.json();
+                addDestination({ lat, lng, address: formattedAddress });
 
-            addDestination({ lat, lng, address: formattedAddress });
-
-            setMessages(prev => [...prev, {
-                role: 'assistant',
-                content: `Added ${formattedAddress} to your route.`
-            }]);
-        } catch (error) {
-            console.error('Error processing address:', error);
-            setMessages(prev => [...prev, {
-                role: 'assistant',
-                content: 'Sorry, I couldn\'t find that location. Please try again.'
-            }]);
+                setMessages(prev => [...prev, {
+                    role: 'route-assistant',
+                    content: `Added ${formattedAddress} to your route.`
+                }]);
+            } catch (error) {
+                console.error('Error processing address:', error);
+                setMessages(prev => [...prev, {
+                    role: 'route-assistant',
+                    content: 'Sorry, I couldn\'t find that location. Please try again.'
+                }]);
+            }
         }
 
         setInputMessage('');
@@ -374,7 +436,9 @@ export default function ChatInterface() {
                                         type="text"
                                         value={inputMessage}
                                         onChange={(e) => setInputMessage(e.target.value)}
-                                        placeholder="Type a destination..."
+                                            placeholder={activeChat === 'traffic'
+                                                ? "Ask about traffic, time, or directions..."
+                                                : "Type a destination..."}
                                         className="flex-1 p-2 border dark:border-gray-700 rounded-lg dark:bg-gray-700"
                                     />
                                     <button
