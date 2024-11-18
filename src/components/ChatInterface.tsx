@@ -16,11 +16,12 @@ export default function ChatInterface() {
     const [isLocationEnabled, setIsLocationEnabled] = useState(false);
     const [isChatVisible, setIsChatVisible] = useState(true);
     const [showCamera, setShowCamera] = useState(false);
-    const { addDestination } = useMap();
+    const { addDestination, setCurrentLocation } = useMap();
     const [capturedImage, setCapturedImage] = useState<string | null>(null);
     const [extractedAddress, setExtractedAddress] = useState('');
     const [isProcessing, setIsProcessing] = useState(false);
     const [showAddressConfirmation, setShowAddressConfirmation] = useState(false);
+    const [activeChat, setActiveChat] = useState<'route' | 'traffic'>('route');
 
     // Add file input ref
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -127,18 +128,21 @@ export default function ChatInterface() {
     const requestLocation = async () => {
         try {
             const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-                navigator.geolocation.getCurrentPosition(resolve, reject);
+                navigator.geolocation.getCurrentPosition(resolve, reject, {
+                    enableHighAccuracy: true,
+                    maximumAge: 30000,
+                    timeout: 27000
+                });
             });
 
-            setIsLocationEnabled(true);
-            setMessages(prev => [...prev,
-            { role: 'user', content: 'Location enabled' },
-            { role: 'assistant', content: 'Great! You can now share your destination by typing an address, uploading a photo, or using the camera to scan.' }
-            ]);
-
-            // Here you would typically update the map with the user's location
             const { latitude, longitude } = position.coords;
-            // Update map center (implement this)
+            setIsLocationEnabled(true);
+            setCurrentLocation({ lat: latitude, lng: longitude });
+
+            setMessages(prev => [...prev,
+                { role: 'user', content: 'Location enabled' },
+                { role: 'assistant', content: 'Great! You can now share your destination by typing an address, uploading a photo, or using the camera to scan.' }
+            ]);
 
         } catch (error) {
             setMessages(prev => [...prev, {
@@ -213,17 +217,112 @@ export default function ChatInterface() {
         }
     };
 
+    // Add new function to handle clearing chat
+    const handleClearChat = () => {
+        setMessages([{
+            role: 'assistant',
+            content: 'Chat cleared. How can I help you with your route?'
+        }]);
+    };
+
+    // Add function to add current location as destination
+    const addCurrentLocationAsDestination = async () => {
+        if (!navigator.geolocation) {
+            setMessages(prev => [...prev, {
+                role: 'assistant',
+                content: 'Geolocation is not supported by your browser.'
+            }]);
+            return;
+        }
+
+        try {
+            const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+                navigator.geolocation.getCurrentPosition(resolve, reject);
+            });
+
+            const { latitude, longitude } = position.coords;
+
+            // Reverse geocode to get address
+            const response = await fetch('/api/reverse-geocode', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ lat: latitude, lng: longitude }),
+            });
+
+            if (!response.ok) throw new Error('Failed to get address');
+
+            const { address } = await response.json();
+            addDestination({ lat: latitude, lng: longitude, address });
+
+            setMessages(prev => [...prev, {
+                role: 'assistant',
+                content: `Added your current location: ${address}`
+            }]);
+
+        } catch (error) {
+            setMessages(prev => [...prev, {
+                role: 'assistant',
+                content: 'Unable to access your location. Please ensure location services are enabled.'
+            }]);
+        }
+    };
+
     return (
         <>
-            <button
-                onClick={() => setIsChatVisible(!isChatVisible)}
-                className="absolute left-4 top-4 z-20 p-2 bg-white rounded-full shadow-lg"
-            >
-                {isChatVisible ? '←' : '→'}
-            </button>
+            <div className="absolute left-4 top-4 z-20 flex gap-2">
+                <button
+                    onClick={() => setIsChatVisible(!isChatVisible)}
+                    className="p-2 bg-white rounded-full shadow-lg hover:bg-gray-100"
+                >
+                    {isChatVisible ? '←' : '→'}
+                </button>
+                {isChatVisible && (
+                    <div className="flex gap-2">
+                        <button
+                            onClick={() => setActiveChat('route')}
+                            className={`p-2 rounded-full shadow-lg ${activeChat === 'route' ? 'bg-blue-500 text-white' : 'bg-white'
+                                }`}
+                        >
+                            🗺️
+                        </button>
+                        <button
+                            onClick={() => setActiveChat('traffic')}
+                            className={`p-2 rounded-full shadow-lg ${activeChat === 'traffic' ? 'bg-blue-500 text-white' : 'bg-white'
+                                }`}
+                        >
+                            🚦
+                        </button>
+                    </div>
+                )}
+            </div>
 
             {isChatVisible && (
                 <div className="absolute left-4 md:left-8 top-20 bottom-8 w-[90vw] md:w-80 bg-white dark:bg-gray-800 rounded-lg shadow-lg flex flex-col overflow-hidden z-10">
+                    {/* Chat header */}
+                    <div className="p-4 border-b dark:border-gray-700 flex justify-between items-center">
+                        <h2 className="font-semibold">
+                            {activeChat === 'route' ? 'Route Planning' : 'Traffic Assistant'}
+                        </h2>
+                        <div className="flex gap-2">
+                            {isLocationEnabled && (
+                                <button
+                                    onClick={addCurrentLocationAsDestination}
+                                    className="p-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg"
+                                    title="Add current location"
+                                >
+                                    📍
+                                </button>
+                            )}
+                            <button
+                                onClick={handleClearChat}
+                                className="p-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg"
+                                title="Clear chat"
+                            >
+                                🗑️
+                            </button>
+                        </div>
+                    </div>
+
                     {/* Chat messages */}
                     <div className="flex-1 overflow-y-auto p-4 space-y-4">
                         {messages.map((message, index) => (
