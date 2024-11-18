@@ -9,7 +9,7 @@ const RETRY_DELAY_MS = 5000; // 5 seconds
 async function generateAddressWithRetry(prompt: string, image: string) {
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
         try {
-            const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+            const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
             const result = await model.generateContent([
                 prompt,
                 { inlineData: { data: image.split(',')[1], mimeType: 'image/jpeg' } }
