@@ -60,6 +60,9 @@ const handleTrafficQuery = async (query: string, destinations: Array<{ lat: numb
     }
 };
 
+// Add this near the top of the file, after imports
+const LINKEDIN_URL = "https://www.linkedin.com/in/alpharomercoma"; // Replace with your LinkedIn URL
+
 export default function ChatInterface() {
     const [messages, setMessages] = useState<Message[]>([]);
     const [inputMessage, setInputMessage] = useState('');
@@ -88,7 +91,7 @@ export default function ChatInterface() {
         if (messages.length === 0) {
             setMessages([{
                 role: 'assistant',
-                content: 'Hi! To help plan your route, I\'ll need access to your location. Would you like to enable location services?'
+                content: 'Hi! I\'m Ace from AceRouter. To help plan your route, I\'ll need access to your location. Would you like to enable location services?'
             }]);
         }
     }, []);
@@ -156,7 +159,7 @@ export default function ChatInterface() {
 
         if (activeChat === 'traffic') {
             const response = await handleTrafficQuery(inputMessage, destinations);
-            setMessages(prev => [...prev, response]);
+            setMessages(prev => [...prev, response as Message]);
         } else {
         // Existing route planning logic
             try {
@@ -360,28 +363,41 @@ export default function ChatInterface() {
 
             {isChatVisible && (
                 <div className="absolute left-4 md:left-8 top-20 bottom-8 w-[90vw] md:w-80 bg-white dark:bg-gray-800 rounded-lg shadow-lg flex flex-col overflow-hidden z-10">
-                    {/* Chat header */}
-                    <div className="p-4 border-b dark:border-gray-700 flex justify-between items-center">
-                        <h2 className="font-semibold">
-                            {activeChat === 'route' ? 'Route Planning' : 'Traffic Assistant'}
-                        </h2>
-                        <div className="flex gap-2">
-                            {isLocationEnabled && (
-                                <button
-                                    onClick={addCurrentLocationAsDestination}
-                                    className="p-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg"
-                                    title="Add current location"
-                                >
-                                    📍
-                                </button>
-                            )}
-                            <button
-                                onClick={handleClearChat}
-                                className="p-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg"
-                                title="Clear chat"
+                    {/* Updated Chat header with branding */}
+                    <div className="p-4 border-b dark:border-gray-700">
+                        <div className="flex justify-between items-center mb-2">
+                            <h1 className="font-bold text-lg text-blue-600">AceRouter</h1>
+                            <a
+                                href={LINKEDIN_URL}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-sm text-gray-500 hover:text-blue-500"
                             >
-                                🗑️
-                            </button>
+                                by Alpha
+                            </a>
+                        </div>
+                        <div className="flex justify-between items-center">
+                            <h2 className="font-semibold text-gray-700 dark:text-gray-300">
+                                {activeChat === 'route' ? 'Route Planning' : 'Traffic Assistant'}
+                            </h2>
+                            <div className="flex gap-2">
+                                {isLocationEnabled && (
+                                    <button
+                                        onClick={addCurrentLocationAsDestination}
+                                        className="p-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg"
+                                        title="Add current location"
+                                    >
+                                        📍
+                                    </button>
+                                )}
+                                <button
+                                    onClick={handleClearChat}
+                                    className="p-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg"
+                                    title="Clear chat"
+                                >
+                                    🗑️
+                                </button>
+                            </div>
                         </div>
                     </div>
 
@@ -392,7 +408,7 @@ export default function ChatInterface() {
                                 {message.role !== 'user' && (
                                     <div className="w-8 h-8 rounded-full overflow-hidden mr-2">
                                         <Image
-                                            src={message.role === 'route-assistant' ? "/route-assistant.png" : "/help-assistant.png"}
+                                            src={message.role === 'route-assistant' ? "/ace.png" : "/ace.png"}
                                             alt="Assistant"
                                             width={32}
                                             height={32}
@@ -409,7 +425,7 @@ export default function ChatInterface() {
                                 {message.role === 'user' && (
                                     <div className="w-8 h-8 rounded-full overflow-hidden ml-2">
                                         <Image
-                                            src="/user-avatar.png"
+                                            src="/user.png"
                                             alt="User"
                                             width={32}
                                             height={32}
